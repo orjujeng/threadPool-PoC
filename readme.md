@@ -6,7 +6,7 @@
 
 ![img.png](img.png) 
 
-**主线程执行在执行主要业务，工作线程执行主要业务，获取响应与结果后由主线程处理：**
+**主线程执行业务，工作线程执行业务，获取响应与结果后由主线程处理：**
 
 ![img_1.png](img_1.png)
 ### 实现线程任务的方式
@@ -159,12 +159,13 @@ public Response completableFutureService() throws ExecutionException, Interrupte
 [ForkJoin Algorithm](https://www.bilibili.com/video/BV1M34y1q7M2/?spm_id_from=333.337.search-card.all.click&vd_source=777b66d9ea6bb56ea53f120df4b32bb6)
 
 ## 3. 为什么使用线程池
-至此为止，多线程依旧没被谈论，每次拿到一个新的线程执行异步任务，这会造成大量的时间消耗在创建线程，cpu内存调度。
-如果不使用多线程，会在cpu中建立大量独立线程。例如下图：
+每次拿一个新的线程执行异步任务，这会造成大量的时间消耗在创建线程，cpu内存调度。
+如果不使用多线程，会在cpu中建立大量独立线程。例如下图runnable压测log：
 
 ![img_2.png](img_2.png)
 
-上图为runnable压测log。针对线程池use/unuse，总结了如下图：
+
+针对线程池use/unuse，总结了如下图：
 
 ![img_3.png](img_3.png)
 ## 4. 线程池配置
@@ -213,7 +214,7 @@ public Executor taskExecutor() {
     return Executors.newFixedThreadPool(5);
 }
 ```
-使用轮询策略使用线程如图
+使用轮询策略使用线程，如图
 
 ![img_4.png](img_4.png)
 
@@ -224,7 +225,7 @@ public Executor taskExecutor() {
     return Executors.newCachedThreadPool();
 }
 ```
-短时大并发任务时，创建大量线程之后逐渐销毁不在使用的线程：
+短时大并发任务时，创建大量线程之后，逐渐销毁不再使用的线程：
 
 ![img_5.png](img_5.png)
 
@@ -238,7 +239,7 @@ public Executor taskExecutor() {
     return Executors.newSingleThreadExecutor();
 }
 ```
-连接池只有一个工作线程：pool-3-thread-1
+线程池有且只有一个工作线程：pool-3-thread-1
 
 ![img_7.png](img_7.png)
 #### ScheduledThreadPool
@@ -251,7 +252,7 @@ public Executor taskExecutor() {
 
 
 结合spring的Scheduled注解使用，如果将它作为线程池交给异步方法和表现与固定线程池一样。
-上述线程池技术都来自于java.util.concurrent.
+
 #### ThreadPoolExecutor
 该线程池两种来源：
 1. springframework.scheduling.concurrent.ThreadPoolTaskExecutor
@@ -286,7 +287,7 @@ public Executor taskExecutor() {
 1. core thread 核心线程数。 推荐值：N = CPU 核心数 × (1 + I/O 时间 ÷ CPU 时间)
 2. max thread 最大线程数，核心线程满后会将任务放到队列，队列也满后增加线程，直到最大线程。
 3. queue limit 队列容纳任务数量。
-4. alive time 线程空闲时间 
+4. alive time 线程空闲时间 （最大线程数经过空闲时间会被销毁） 
 5. refuse policy 到达最大线程数，队列满后舍弃任务的策略
 6. ThreadNamePrefix 线程别名
 ##### 舍弃策略
@@ -297,6 +298,8 @@ public Executor taskExecutor() {
 ###### CallerRunsPolicy：
 主线程承接任务，变为同步方法：
 
+async threadpol的线程名与主线程一致
+
 ![img_8.png](img_8.png)
 
 ###### DiscardPolicy：
@@ -306,7 +309,7 @@ public Executor taskExecutor() {
 ###### DiscardOldestPolicy：
 移除队列最开始进入的任务，并重新尝试最近进入的任务。
 #### ThreadPoolExecutor 监控策略
-ThreadPoolExecutor 支持返回正在运行的线程使用情况可以参考以下代码：
+ThreadPoolExecutor 支持返回正在运行的线程使用情况，参考以下代码新建一个接口监测运行情况：
 ```
 @RequestMapping(value = "/monitor",method = RequestMethod.GET)
     public Response monitor()  {
@@ -324,15 +327,15 @@ ThreadPoolExecutor 支持返回正在运行的线程使用情况可以参考以�
         return Response.success(data);
     }
 ```
-压测中
+压测中：
 
 ![img_10.png](img_10.png)
 
-压测后
+压测后：
 
 ![img_11.png](img_11.png)
 
-当然还可以使用actuator thread接口进行监控。
+还可以使用actuator thread接口进行监控。
 ### 上述线程池总结
 ![img_9.png](img_9.png)
 
@@ -360,7 +363,7 @@ public CompletableFuture asyncService() {
 
 ## 6. SynctaskExecutor的使用
 
-SynctaskExecutor虽然是Executor，但是并不是一个线程池。它不会建立任何一条工作线程，那它的使用场景是什么呢？
+SynctaskExecutor虽然是Executor，但是并不是一个线程池。它不会建立任何一条工作线程，那它的使用伪代码如下：
 
 ```
 @Override
@@ -377,7 +380,7 @@ public CompletableFuture asyncService() {
 ${ThreadPool}作为入参，我们可以根据不同环境读不同的perproties进行配置，在UT环境下我们配置为SynctaskExecutor，即可让所有的在sit/uat/prod中的异步方法同步化。
 保证顺序执行完整case。
 
-当然，上述方案的前提是必须在cofigurion中配置：
+当然，上述方案的前提是必须配置SynctaskExecutor连接池：
 ```
 @Bean(name = "synctaskExecutor")
 public TaskExecutor synctaskExecutor() {
@@ -385,7 +388,9 @@ public TaskExecutor synctaskExecutor() {
 }
 ```
 
-## 7. 附录
+## 7. 附录 启动配置
+
+repo启动需要配置mysql，zipkin，jdk17
 
 docker配置mysql
 ```
@@ -399,13 +404,6 @@ docker run -d \
 -p 3306:3306 \
 mysql:8.0.39
 ```
-线程测试controller
-
-[ThreadController.java](src%2Fmain%2Fjava%2Fcom%2Forjujeng%2Fthreadpool%2Fcontroller%2FThreadController.java)
-
-线程池测试controller
-
-[ThreadPoolController.java](src%2Fmain%2Fjava%2Fcom%2Forjujeng%2Fthreadpool%2Fcontroller%2FThreadPoolController.java)
 
 DB log表的DDL语句：
 
@@ -423,7 +421,16 @@ Zipkin 配置方式
 ```
 docker run -d -p 9411:9411 openzipkin/zipkin
 ```
-更多结果请参考：
+
+线程测试controller
+
+[ThreadController.java](src%2Fmain%2Fjava%2Fcom%2Forjujeng%2Fthreadpool%2Fcontroller%2FThreadController.java)
+
+线程池测试controller
+
+[ThreadPoolController.java](src%2Fmain%2Fjava%2Fcom%2Forjujeng%2Fthreadpool%2Fcontroller%2FThreadPoolController.java)
+
+## 8. 附录 测试完整结果：
 
 [ThreadPool.pdf](src%2Fmain%2Fresources%2FThreadPool.pdf)
 
