@@ -26,8 +26,8 @@ public class ThreadPoolController {
     @RequestMapping(value = "/async",method = RequestMethod.GET)
     public Response async() throws ExecutionException, InterruptedException {
         System.out.println("async Main thread name " + Thread.currentThread().getName());
-        CompletableFuture result = threadPoolSevice.asyncService();
-        return Response.success("controller data" + result.get());
+        threadPoolSevice.asyncService();
+        return Response.success("controller data");
     }
 
     @RequestMapping(value = "/completableFuture",method = RequestMethod.GET)
@@ -41,10 +41,12 @@ public class ThreadPoolController {
         int activeCount = executor.getActiveCount();
         int corePoolSize = executor.getCorePoolSize();
         int maxPoolSize = executor.getMaxPoolSize();
+        int poolSize = executor.getPoolSize();
         int queueSize = executor.getThreadPoolExecutor().getQueue().size();
         long completedTaskCount = executor.getThreadPoolExecutor().getCompletedTaskCount();
         HashMap data = new HashMap<String,Integer>();
         data.put("activeCount",activeCount);
+        data.put("poolSize",poolSize);
         data.put("corePoolSize",corePoolSize);
         data.put("maxPoolSize",maxPoolSize);
         data.put("queueSize",queueSize);

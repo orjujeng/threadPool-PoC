@@ -6,7 +6,7 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 
 public interface ThreadPoolSevice {
-    public CompletableFuture asyncService();
+    public void asyncService();
 
     public Response completableFutureService() throws ExecutionException, InterruptedException;
 }

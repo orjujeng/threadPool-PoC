@@ -290,6 +290,41 @@ public Executor taskExecutor() {
 4. alive time 线程空闲时间 （最大线程数经过空闲时间会被销毁） 
 5. refuse policy 到达最大线程数，队列满后舍弃任务的策略
 6. ThreadNamePrefix 线程别名
+##### 关于队列参数
+###### ArrayBlockingQueue
+```
+new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS, 
+                       new ArrayBlockingQueue<>(100));
+```
+基于数组：队列大小有限，可以避免无限制的内存占用。
+###### LinkedBlockingQueue
+```
+new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS, 
+                       new LinkedBlockingQueue<>());
+
+
+new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS, 
+                       new LinkedBlockingQueue<>(100));
+```
+基于链表：默认无限大小，可能会导致OOM，但也可根据业务添加队列大小。
+###### SynchronousQueue
+```
+new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS, 
+                       new SynchronousQueue<>());
+```
+不会产生队列，当核心线程不够用，会立即使用最大线程工作。
+###### PriorityBlockingQueue
+```
+new ThreadPoolExecutor(corePoolSize, maxPoolSize, keepAliveTime, TimeUnit.SECONDS, 
+                       new PriorityBlockingQueue<>());
+```
+带有优先级的队列，会根据任务优先级使用：任务必须实现 Comparable 接口，或者使用自定义的 Comparator。
+```
+伪代码如下：
+Comparator<Task> comparator = (task1, task2) -> Integer.compare(task1.getPriority(), task2.getPriority());
+PriorityBlockingQueue<Task> queue = new PriorityBlockingQueue<>(10, comparator);
+```
+前提是每一个异步方法实现优先级的Comparable接口。
 ##### 舍弃策略
 ###### AbortPolicy 默认：
 抛出异常，
@@ -336,6 +371,58 @@ ThreadPoolExecutor 支持返回正在运行的线程使用情况，参考以下�
 ![img_11.png](img_11.png)
 
 还可以使用actuator thread接口进行监控。
+那么当springboot项目启动时，是否真的相对应的核心线程被拉起呢：
+```
+public static void main(String[] args) {
+        ApplicationContext context = SpringApplication.run(Application.class, args);
+        ThreadPoolTaskExecutor executor = context.getBean("executor", ThreadPoolTaskExecutor.class);
+        int activeCount = executor.getActiveCount();
+        int corePoolSize = executor.getCorePoolSize();
+        int maxPoolSize = executor.getMaxPoolSize();
+        int poolSize = executor.getPoolSize();
+        int queueSize = executor.getThreadPoolExecutor().getQueue().size();
+        long completedTaskCount = executor.getThreadPoolExecutor().getCompletedTaskCount();
+        HashMap data = new HashMap<String,Integer>();
+        data.put("activeCount",activeCount);
+        data.put("poolSize",poolSize);
+        data.put("corePoolSize",corePoolSize);
+        data.put("maxPoolSize",maxPoolSize);
+        data.put("queueSize",queueSize);
+        data.put("completedTaskCount",completedTaskCount);
+        System.out.println(data);
+    }
+```
+启动后并不是核心线程数到达预期，在没有任务时并不会占用物理线程。（queueSize": 0）
+![img_14.png](img_14.png)
+```
+{
+"data": {
+"activeCount": 0,
+"queueSize": 0,
+"poolSize": 1,
+"corePoolSize": 2,
+"completedTaskCount": 1,
+"maxPoolSize": 4
+},
+"code": "200"
+}
+```
+当调用一次后，也不会到达核心线程数（"queueSize": 1）
+```
+{
+"data": {
+"activeCount": 0,
+"queueSize": 0,
+"poolSize": 2,
+"corePoolSize": 2,
+"completedTaskCount": 18,
+"maxPoolSize": 4
+},
+"code": "200"
+}
+```
+当大量调用后会保持核心线程数，并一直保持。
+
 ### 上述线程池总结
 ![img_9.png](img_9.png)
 
@@ -387,8 +474,61 @@ public TaskExecutor synctaskExecutor() {
     return new SyncTaskExecutor();
 }
 ```
+## 7. 如何处理异步方法的异常
+以@Async为例
 
-## 7. 附录 启动配置
+如果该异步不会依赖主线程执行，如果不进行异常处理，我们除了实时监控log外无法有别的监控手段，并且主服务正常返回200的code，无法感知问题。
+针对这种情况，需要添加异常处理手段。
+### try-catch
+```
+@Async
+    public CompletableFuture asyncService() {
+        System.out.println("async threadpool executing");
+        System.out.println("async threadpool name " + Thread.currentThread().getName());
+        int insertResult = 0;
+        try {
+            insertResult = threadMapper.insertThreadLog("asyncPool");
+            int exception= 1/0;
+            System.out.println("async threadpool Done");
+            return new CompletableFuture<String>().completedFuture("threadpool insertResult:"+ insertResult);
+        } catch (Exception e) {
+            System.out.println("async with exception");
+            return CompletableFuture.failedFuture(e);
+        }
+    }
+```
+其中
+```
+catch (Exception e) {}
+```
+中的代码块可以作为异常处理记录log，添加告警。具体报错如下：
+![img_12.png](img_12.png)
+
+try catch并不仅仅能被异步方法使用，实际所有的方法都可以使用java异常处理机制，我们需要在每一个可能出现问题的代码块中添加这类一场捕获方式，这并不高效。
+
+### AsyncConfigurer
+
+AsyncConfigurer 作为全局异常管理器，可以管理异步任务中返回为void的异步方法，具体配置如下：
+
+```
+@Configuration
+@EnableAsync
+public class TreadPoolConfig implements AsyncConfigurer {
+
+    @Override
+    public AsyncUncaughtExceptionHandler getAsyncUncaughtExceptionHandler() {
+        return new AsyncUncaughtExceptionHandler(){
+            @Override
+            public void handleUncaughtException(Throwable ex, Method method, Object... params) {
+                System.out.println("this from handleUncaughtException");
+            }
+        };
+    }
+}
+```
+执行结果如下，异步方法的异常会被捕获并且进行处理：
+![img_13.png](img_13.png)
+## 8. 附录 启动配置
 
 repo启动需要配置mysql，zipkin，jdk17
 

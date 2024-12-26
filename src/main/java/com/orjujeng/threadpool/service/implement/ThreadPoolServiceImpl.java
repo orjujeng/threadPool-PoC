@@ -22,13 +22,12 @@ public class ThreadPoolServiceImpl implements ThreadPoolSevice {
     @Autowired
     ThreadPoolTaskExecutor threadPoolTaskExecutor;
     @Override
-    @Async("synctaskExecutor")
-    public CompletableFuture asyncService() {
+    @Async
+    public void asyncService() {
         System.out.println("async threadpool executing");
         System.out.println("async threadpool name " + Thread.currentThread().getName());
-        int insertResult = threadMapper.insertThreadLog("asyncPool");
-        System.out.println("async threadpool Done");
-        return new CompletableFuture<String>().completedFuture("threadpool insertResult:"+ insertResult);
+        int insertResult = 0;
+        insertResult = threadMapper.insertThreadLog("asyncPool");
     }
 
     @Override
